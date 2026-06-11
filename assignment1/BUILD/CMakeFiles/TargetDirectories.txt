@@ -1,0 +1,11 @@
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/intrinsics_gen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/omp_gen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/acc_gen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/ARMTargetParserTableGen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/AArch64TargetParserTableGen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/RISCVTargetParserTableGen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/AlgebraicIdentity.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/MultiInstructionOpt.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/StrengthReduction.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/edit_cache.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment1/BUILD/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC  -fno-rtti -shared -Wl,-soname,libStrengthReduction.so -o libStrengthReduction.so CMakeFiles/StrengthReduction.dir/strength.cpp.o 

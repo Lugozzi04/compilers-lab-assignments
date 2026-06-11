@@ -1,0 +1,9 @@
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/intrinsics_gen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/omp_gen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/acc_gen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/ARMTargetParserTableGen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/AArch64TargetParserTableGen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/RISCVTargetParserTableGen.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/LoopInvariantMotion.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/edit_cache.dir
+/home/lugozzi/Desktop/repo/compilers-lab-assignments/assignment3/BUILD/CMakeFiles/rebuild_cache.dir

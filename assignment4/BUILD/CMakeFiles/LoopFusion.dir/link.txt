@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC  -fno-rtti -shared -Wl,-soname,libLoopFusion.so -o libLoopFusion.so CMakeFiles/LoopFusion.dir/LoopFusion.cpp.o 

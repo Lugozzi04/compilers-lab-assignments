@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC  -fno-rtti -shared -Wl,-soname,libAlgebraicIdentity.so -o libAlgebraicIdentity.so CMakeFiles/AlgebraicIdentity.dir/algebraic.cpp.o 
