@@ -337,11 +337,6 @@ CMakeFiles/LoopFusion.dir/LoopFusion.cpp.o: \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/ValueHandle.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/ValueMap.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/Mutex.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/ScalarEvolutionExpressions.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/Constants.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/APFloat.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/FloatingPointMode.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/StringSwitch.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/DependenceAnalysis.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/SmallBitVector.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Passes/PassBuilder.h \
@@ -390,6 +385,8 @@ CMakeFiles/LoopFusion.dir/LoopFusion.cpp.o: \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/EHPersonalities.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/Recycler.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Target/TargetOptions.h \
+ /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/FloatingPointMode.h \
+ /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/StringSwitch.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/MC/MCTargetOptions.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/Compression.h \
  /usr/include/c++/13/bitset /usr/include/c++/13/variant \
@@ -407,6 +404,8 @@ CMakeFiles/LoopFusion.dir/LoopFusion.cpp.o: \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Transforms/IPO/ModuleInliner.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Transforms/Instrumentation.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/DebugInfoMetadata.h \
+ /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/Constants.h \
+ /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/APFloat.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/PseudoProbe.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/CommandLine.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/StringSaver.h \
@@ -433,6 +432,7 @@ CMakeFiles/LoopFusion.dir/LoopFusion.cpp.o: \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/IntrinsicInst.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/LoopAccessAnalysis.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/EquivalenceClasses.h \
+ /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/ScalarEvolutionExpressions.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/DiagnosticInfo.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/SourceMgr.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/MemoryBuffer.h \

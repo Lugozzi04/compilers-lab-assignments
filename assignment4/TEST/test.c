@@ -1,65 +1,67 @@
 // Test suite for assignment 4.
-// The file mixes fusible and non-fusible loop pairs so we can see both the
-// happy path and the rejection cases in the generated LLVM IR.
+// The loops use small constant trip counts so the simplified fusion pass can
+// match the PDF more closely.
+
+#define N 8
 
 int g_sink;
 
-void fuse_reset_then_bump(int *a, int n) {
-    for (int i = 0; i < n; ++i) {
+void fuse_reset_then_bump(int *a) {
+    for (int i = 0; i < N; ++i) {
         a[i] = i;
     }
 
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < N; ++i) {
         a[i] = a[i] + 1;
     }
 }
 
-void fuse_scale_then_shift(int *a, int n) {
-    for (int i = 0; i < n; ++i) {
+void fuse_scale_then_shift(int *a) {
+    for (int i = 0; i < N; ++i) {
         a[i] = i * 2;
     }
 
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < N; ++i) {
         int p = i * 17;
         p = p + 5;
         a[i] = a[i] + 3;
     }
 }
 
-void no_fuse_different_trip_count(int *a, int n) {
-    for (int i = 0; i < n; ++i) {
+void no_fuse_different_trip_count(int *a) {
+    for (int i = 0; i < N; ++i) {
         a[i] = i;
     }
 
-    for (int i = 0; i < n - 1; ++i) {
+    for (int i = 0; i < N - 1; ++i) {
         a[i] = i + 7;
     }
 }
 
-void no_fuse_negative_distance(int *a, int n) {
-    for (int i = 0; i + 1 < n; ++i) {
-        a[i] = i;
+void no_fuse_negative_distance(int *src, int *dst) {
+    for (int i = 0; i < N - 3; ++i) {
+        src[i] = i;
     }
 
-    for (int i = 0; i + 1 < n; ++i) {
-        a[i + 1] = i;
+    for (int i = 0; i < N - 3; ++i) {
+        dst[i] = src[i + 3];
     }
 }
 
-void no_fuse_gap_between_loops(int *a, int n) {
-    for (int i = 0; i < n; ++i) {
+void no_fuse_gap_between_loops(int *a) {
+    for (int i = 0; i < N; ++i) {
         a[i] = i;
     }
 
-    g_sink += n;
+    g_sink += N;
 
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < N; ++i) {
         a[i] = i + g_sink;
     }
 }
 
-void no_fuse_branchy_body(int *a, int n) {
-    for (int i = 0; i < n; ++i) {
+void fuse_branchy_body(int *a) {
+    for (int i = 0; i < N; ++i) {
         if ((i & 1) == 0) {
             a[i] = i;
         } else {
@@ -67,7 +69,7 @@ void no_fuse_branchy_body(int *a, int n) {
         }
     }
 
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < N; ++i) {
         a[i] = a[i] + 5;
     }
 }

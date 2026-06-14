@@ -25,7 +25,6 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ScalarEvolution.h"
-#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/DependenceAnalysis.h"
 
 #include "llvm/Passes/PassBuilder.h"
@@ -44,19 +43,6 @@ namespace {
 struct LoopFusion : PassInfoMixin<LoopFusion> {
 
     // -------------------------------------------------------------------------
-    // Restituisce l'operando puntatore di un'istruzione load/store.
-    // -------------------------------------------------------------------------
-    Value *getPointerOperand(Instruction *I) {
-        if (auto *LI = dyn_cast<LoadInst>(I))
-            return LI->getPointerOperand();
-
-        if (auto *SI = dyn_cast<StoreInst>(I))
-            return SI->getPointerOperand();
-
-        return nullptr;
-    }
-
-    // -------------------------------------------------------------------------
     // Raccoglie solo istruzioni load/store.
     //
     // Questa scelta è intenzionalmente semplice e vicina agli esempi dell'esercizio.
@@ -70,6 +56,31 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
                     MemInsts.push_back(&I);
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Raccoglie i loop top-level nella loro ordine naturale.
+    //
+    // La consegna lavora su coppie di loop consecutivi allo stesso livello.
+    // -------------------------------------------------------------------------
+    void collectTopLevelLoops(LoopInfo &LI, std::vector<Loop *> &Loops) {
+        Loops.clear();
+
+        for (Loop *L : LI.getLoopsInPreorder()) {
+            if (!L->getParentLoop())
+                Loops.push_back(L);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Costruisce le coppie di loop consecutivi da testare.
+    // -------------------------------------------------------------------------
+    void collectCandidatePairs(const std::vector<Loop *> &Loops,
+                               std::vector<std::pair<Loop *, Loop *>> &CandidatePairs) {
+        CandidatePairs.clear();
+
+        for (unsigned I = 0; I + 1 < Loops.size(); ++I)
+            CandidatePairs.emplace_back(Loops[I], Loops[I + 1]);
     }
 
     // -------------------------------------------------------------------------
@@ -128,74 +139,66 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
     }
 
     // -------------------------------------------------------------------------
-    // Restituisce il blocco di ingresso usato per i controlli di dominanza/post-dominanza.
+    // Controlla l'adiacenza.
     //
-    // Se il loop è guarded, usa il blocco di guardia.
-    // Altrimenti, usa il preheader del loop.
+    // Versione conforme al PDF:
+    //   - se i loop sono guarded, il successore non-loop del guard di L0
+    //     deve coincidere con l'entry block di L1;
+    //   - altrimenti, l'exit block di L0 deve coincidere con il preheader di L1.
     // -------------------------------------------------------------------------
-    BasicBlock *getLoopEntryForChecks(Loop *L) {
+    BasicBlock *getLoopEntryBlock(Loop *L) {
         if (BranchInst *Guard = L->getLoopGuardBranch())
             return Guard->getParent();
 
         return L->getLoopPreheader();
     }
 
-    // -------------------------------------------------------------------------
-    // Controlla l'adiacenza.
-    //
-    // Caso non guarded:
-    //   exit block di L0 == preheader di L1
-    //
-    // Caso guarded:
-    //   il successore fuori dal loop della catena guard/exit di L0 raggiunge l'ingresso di L1.
-    //
-    // Resta comunque un controllo semplificato, ma gestisce i casi più comuni
-    // discussi nell'esercizio.
-    // -------------------------------------------------------------------------
+    BasicBlock *getNonLoopGuardSuccessor(Loop *L) {
+        BranchInst *Guard = L->getLoopGuardBranch();
+
+        if (!Guard)
+            return nullptr;
+
+        for (unsigned i = 0; i < Guard->getNumSuccessors(); ++i) {
+            BasicBlock *Succ = Guard->getSuccessor(i);
+
+            if (!L->contains(Succ))
+                return Succ;
+        }
+
+        return nullptr;
+    }
+
     bool areAdjacent(Loop *L0, Loop *L1) {
-        BranchInst *Guard0 = L0->getLoopGuardBranch();
-        BranchInst *Guard1 = L1->getLoopGuardBranch();
-
-        bool IsGuarded0 = Guard0 != nullptr;
-        bool IsGuarded1 = Guard1 != nullptr;
-
-        if (IsGuarded0 != IsGuarded1)
-            return false;
-
-        BasicBlock *Entry1 = getLoopEntryForChecks(L1);
+        BasicBlock *Entry1 = getLoopEntryBlock(L1);
 
         if (!Entry1)
             return false;
 
-        if (!IsGuarded0) {
-            BasicBlock *Exit0 = L0->getExitBlock();
-            BasicBlock *Preheader1 = L1->getLoopPreheader();
-
-            return Exit0 && Preheader1 && Exit0 == Preheader1;
+        if (L0->getLoopGuardBranch()) {
+            BasicBlock *GuardSucc0 = getNonLoopGuardSuccessor(L0);
+            return GuardSucc0 && GuardSucc0 == Entry1;
         }
 
-        BasicBlock *GuardBlock0 = Guard0->getParent();
-
-        for (unsigned i = 0; i < Guard0->getNumSuccessors(); ++i) {
-            BasicBlock *Succ = Guard0->getSuccessor(i);
-
-            if (!L0->contains(Succ) && Succ == Entry1)
-                return true;
-        }
-
-        // Fallback: controlla il blocco di uscita unico.
         BasicBlock *Exit0 = L0->getExitBlock();
-        return Exit0 && Exit0 == Entry1 && GuardBlock0;
+        return Exit0 && Exit0 == Entry1;
     }
 
     // -------------------------------------------------------------------------
     // Controlla se due loop hanno lo stesso trip count usando ScalarEvolution.
     //
-    // Usiamo getBackedgeTakenCount invece di getSmallConstantTripCount perché
-    // funziona anche con trip count simbolici come n.
+    // All'inizio usavamo getSmallConstantTripCount(), ma quello limita troppo
+    // la fusione ai soli loop con bound piccolo e costante. Qui confrontiamo
+    // invece il backedge-taken count esatto di SCEV, così restiamo più vicini
+    // alla consegna e copriamo anche casi simbolici che LLVM sa comunque
+    // modellare in modo preciso.
     // -------------------------------------------------------------------------
     bool haveSameTripCount(Loop *L0, Loop *L1, ScalarEvolution &SE) {
-        const SCEV *TC0 = SE.getBackedgeTakenCount(L0);
+        if (!SE.hasLoopInvariantBackedgeTakenCount(L0) ||
+            !SE.hasLoopInvariantBackedgeTakenCount(L1))
+            return false;
+
+        const SCEV *TC0 = SE.getBackedgeTakenCount(L0); // il backedge count è il numero di volte in cui si percorre il backedge; il trip count è di solito uno in più
         const SCEV *TC1 = SE.getBackedgeTakenCount(L1);
 
         if (isa<SCEVCouldNotCompute>(TC0) || isa<SCEVCouldNotCompute>(TC1))
@@ -207,35 +210,28 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
     // -------------------------------------------------------------------------
     // Controlla l'equivalenza nel controllo del flusso.
     //
-    // L0 e L1 sono equivalenti nel controllo del flusso se:
-    //   L0 domina L1
-    //   L1 post-domina L0
+    // Versione semplice come nelle slide:
+    //   Header0 domina Header1
+    //   Header1 post-domina Header0
     // -------------------------------------------------------------------------
     bool areControlFlowEquivalent(Loop *L0, Loop *L1, DominatorTree &DT, PostDominatorTree &PDT) {
-        BasicBlock *Entry0 = getLoopEntryForChecks(L0);
-        BasicBlock *Entry1 = getLoopEntryForChecks(L1);
+        BasicBlock *Header0 = L0->getHeader();
+        BasicBlock *Header1 = L1->getHeader();
 
-        if (!Entry0 || !Entry1)
+        if (!Header0 || !Header1)
             return false;
 
-        return DT.dominates(Entry0, Entry1) &&
-               PDT.dominates(Entry1, Entry0);
+        return DT.dominates(Header0, Header1) &&
+               PDT.dominates(Header1, Header0);
     }
 
     // -------------------------------------------------------------------------
-    // Prova a rilevare una dipendenza a distanza negativa usando SCEV.
+    // Prova a rilevare dipendenze negative tra gli accessi dei due loop.
     //
-    // Analizziamo solo accessi semplici ad array di tipo affine rappresentati come SCEVAddRecExpr.
-    //
-    // Esempio che dovrebbe impedire la fusione:
-    //
-    //   Loop 0: A[i]   = ...
-    //   Loop 1: ... = A[i+3]
-    //
-    // Store - Load dà una distanza negativa, il che significa che il secondo loop usa
-    // un valore prodotto da un'iterazione futura del primo loop.
+    // Seguiamo le slide: DI.depends(...), poi guardiamo la direction vector.
+    // Se in qualunque livello compare GT, la fusione viene rifiutata.
     // -------------------------------------------------------------------------
-    bool hasNegativeDistanceDependence(Loop *L0, Loop *L1, ScalarEvolution &SE, DependenceInfo &DI) {
+    bool hasNegativeDistanceDependence(Loop *L0, Loop *L1, DependenceInfo &DI) {
         std::vector<Instruction *> Mem0;
         std::vector<Instruction *> Mem1;
 
@@ -244,54 +240,35 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
 
         for (Instruction *I0 : Mem0) {
             for (Instruction *I1 : Mem1) {
-
                 std::unique_ptr<Dependence> Dep = DI.depends(I0, I1, true);
 
                 if (!Dep)
                     continue;
 
-                Value *Ptr0 = getPointerOperand(I0);
-                Value *Ptr1 = getPointerOperand(I1);
-
-                if (!Ptr0 || !Ptr1)
-                    return true;
-
-                const SCEV *S0 = SE.getSCEVAtScope(Ptr0, L0);
-                const SCEV *S1 = SE.getSCEVAtScope(Ptr1, L1);
-
-                const SCEVAddRecExpr *AR0 = dyn_cast<SCEVAddRecExpr>(S0);
-                const SCEVAddRecExpr *AR1 = dyn_cast<SCEVAddRecExpr>(S1);
-
-                // Se c'è una dipendenza ma non riusciamo a ragionarci sopra, meglio essere conservativi.
-                if (!AR0 || !AR1)
-                    return true;
-
-                const SCEV *Step0 = AR0->getStepRecurrence(SE);
-                const SCEV *Step1 = AR1->getStepRecurrence(SE);
-
-                if (Step0 != Step1)
-                    return true;
-
-                const SCEV *Start0 = AR0->getStart();
-                const SCEV *Start1 = AR1->getStart();
-
-                const SCEV *Distance = SE.getMinusSCEV(Start0, Start1);
-
-                // Some pointer-shaped SCEVs do not support a meaningful signed range
-                // query here. If we cannot reason about the distance safely, stay
-                // conservative and reject the fusion instead of crashing.
-                if (!Distance->getType()->isIntegerTy())
-                    return true;
-
-                if (SE.isKnownNegative(Distance)) {
-                    errs() << "  Negative distance dependence found between:\n";
+                if (Dep->isConfused()) {
+                    errs() << "  Confused dependence found between:\n";
                     errs() << "    ";
                     I0->print(errs());
                     errs() << "\n    ";
                     I1->print(errs());
                     errs() << "\n";
-
                     return true;
+                }
+
+                unsigned Levels = Dep->getLevels();
+
+                for (unsigned Level = 1; Level <= Levels; ++Level) {
+                    unsigned Direction = Dep->getDirection(Level);
+
+                    if (Direction & Dependence::DVEntry::GT) {
+                        errs() << "  Negative distance dependence found between:\n";
+                        errs() << "    ";
+                        I0->print(errs());
+                        errs() << "\n    ";
+                        I1->print(errs());
+                        errs() << "\n";
+                        return true;
+                    }
                 }
             }
         }
@@ -326,6 +303,28 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
             return nullptr;
 
         return Body;
+    }
+
+    // -------------------------------------------------------------------------
+    // Restituisce il punto di inserimento ideale per le istruzioni fuse.
+    //
+    // Preferiamo l'incremento della IV del primo loop; se non lo troviamo,
+    // inseriamo prima del terminator del latch.
+    // -------------------------------------------------------------------------
+    Instruction *getFusionInsertPoint(Loop *L, PHINode *IV) {
+        BasicBlock *Latch = L->getLoopLatch();
+
+        if (!Latch)
+            return nullptr;
+
+        if (IV) {
+            if (Value *NextValue = IV->getIncomingValueForBlock(Latch)) {
+                if (Instruction *NextInst = dyn_cast<Instruction>(NextValue))
+                    return NextInst;
+            }
+        }
+
+        return Latch->getTerminator();
     }
 
     // -------------------------------------------------------------------------
@@ -429,7 +428,12 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
             return false;
         }
 
-        Instruction *InsertPoint = Body0->getTerminator();
+        Instruction *InsertPoint = getFusionInsertPoint(L0, IV0);
+
+        if (!InsertPoint) {
+            errs() << "  Could not find insertion point.\n";
+            return false;
+        }
 
         errs() << "  Fusing loops...\n";
 
@@ -442,11 +446,6 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
             errs() << "  Could not redirect first loop exit.\n";
             return false;
         }
-
-        // Rimuove i blocchi del secondo loop che sono diventati irraggiungibili.
-        Function *F = L0->getHeader()->getParent();
-        if (F)
-            EliminateUnreachableBlocks(*F, nullptr, true);
 
         errs() << "  Fusion applied.\n";
         return true;
@@ -488,7 +487,7 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
             return false;
         }
 
-        if (hasNegativeDistanceDependence(L0, L1, SE, DI)) {
+        if (hasNegativeDistanceDependence(L0, L1, DI)) {
             errs() << "  Negative distance dependence. Cannot fuse.\n";
             return false;
         }
@@ -502,36 +501,47 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
     PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM) {
         bool Changed = false;
 
-        LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
-        DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
-        PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
-        ScalarEvolution &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
-        DependenceInfo &DI = AM.getResult<DependenceAnalysis>(F);
-
         errs() << "========================================\n";
         errs() << "Function: " << F.getName() << "\n";
         errs() << "========================================\n";
 
-        std::vector<Loop *> Loops;
+        while (true) {
+            LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
+            DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
+            PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
+            ScalarEvolution &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
+            DependenceInfo &DI = AM.getResult<DependenceAnalysis>(F);
 
-        for (Loop *L : LI.getLoopsInPreorder()) {
-            Loops.push_back(L);
-        }
+            std::vector<Loop *> Loops;
+            std::vector<std::pair<Loop *, Loop *>> CandidatePairs;
 
-        if (Loops.size() < 2) {
-            errs() << "Not enough loops for fusion.\n\n";
-            return PreservedAnalyses::all();
-        }
+            collectTopLevelLoops(LI, Loops);
 
-        // Prova le coppie di loop nell'ordine del programma.
-        for (unsigned i = 0; i + 1 < Loops.size(); ++i) {
-            Loop *L0 = Loops[i];
-            Loop *L1 = Loops[i + 1];
-
-            if (tryFuseLoops(L0, L1, DT, PDT, SE, DI)) {
-                Changed = true;
+            if (Loops.size() < 2) {
+                if (!Changed)
+                    errs() << "Not enough loops for fusion.\n";
                 break;
             }
+
+            collectCandidatePairs(Loops, CandidatePairs);
+
+            bool FusedThisRound = false;
+
+            // Prova le coppie di loop nell'ordine del programma.
+            for (auto [L0, L1] : CandidatePairs) {
+                if (tryFuseLoops(L0, L1, DT, PDT, SE, DI)) {
+                    Changed = true;
+                    FusedThisRound = true;
+                    break;
+                }
+            }
+
+            if (!FusedThisRound)
+                break;
+
+            // La fusione cambia la IR: invalidiamo le analisi e ripartiamo con
+            // dati freschi, così possiamo valutare altre coppie residue.
+            AM.invalidate(F, PreservedAnalyses::none());
         }
 
         errs() << "\n";
