@@ -333,14 +333,6 @@ CMakeFiles/LoopInvariantMotion.dir/LoopInvariantMotion.cpp.o: \
  /usr/include/c++/13/bits/stl_multiset.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/ADT/SetOperations.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/Allocator.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/LoopIterator.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/ValueTracking.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/SimplifyQuery.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/Operator.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/WithCache.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/KnownBits.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/DataLayout.h \
- /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/TrailingObjects.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Passes/PassBuilder.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/CGSCCPassManager.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Analysis/LazyCallGraph.h \
@@ -379,6 +371,7 @@ CMakeFiles/LoopInvariantMotion.dir/LoopInvariantMotion.cpp.o: \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/MC/MCInst.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/MC/MCSymbolTableEntry.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/ArrayRecycler.h \
+ /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/TrailingObjects.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/CodeGen/MachineInstrBundleIterator.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/MC/LaneBitmask.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Support/Printable.h \
@@ -414,6 +407,8 @@ CMakeFiles/LoopInvariantMotion.dir/LoopInvariantMotion.cpp.o: \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/ConstantFolder.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/ConstantFold.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/IRBuilderFolder.h \
+ /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/Operator.h \
+ /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/DataLayout.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/FPEnv.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/IR/GlobalVariable.h \
  /home/lugozzi/tools/llvm-19.1.7/include/llvm/Transforms/Scalar/LoopPassManager.h \

@@ -230,7 +230,7 @@ LIBXML2_XMLLINT_EXECUTABLE:FILEPATH=LIBXML2_XMLLINT_EXECUTABLE-NOTFOUND
 LLVM_DIR:PATH=/home/lugozzi/tools/llvm-19.1.7/lib/cmake/llvm
 
 //LLVM installation directory
-LT_LLVM_INSTALL_DIR:PATH=/home/lugozzi/tools/llvm-19.1.7
+LT_LLVM_INSTALL_DIR:PATH=
 
 //Arguments to supply to pkg-config
 PKG_CONFIG_ARGN:STRING=

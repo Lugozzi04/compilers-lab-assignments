@@ -25,12 +25,11 @@
 #include "llvm/IR/Dominators.h"
 
 #include "llvm/Analysis/LoopInfo.h"
-#include "llvm/Analysis/LoopIterator.h"
-#include "llvm/Analysis/ValueTracking.h"
 
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 
+#include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SetVector.h"
@@ -70,19 +69,25 @@ struct LoopInvariantMotion : PassInfoMixin<LoopInvariantMotion> {
     }
 
     // -------------------------------------------------------------------------
-    // Restituisce true se un valore è invariante rispetto al loop L.
+    // Raccoglie esplicitamente le reaching definitions di un valore.
     //
-    // In LLVM SSA questo è l'equivalente pratico delle reaching definitions:
-    // un valore è considerato invariante se la sua definizione non cambia
-    // mentre siamo nel loop, oppure se è prodotta da un'istruzione già
-    // riconosciuta come invarianta.
+    // In SSA, nella maggior parte dei casi, il set contiene una sola
+    // istruzione definente. Lo materializziamo comunque in modo esplicito
+    // per restare il più possibile fedele al pseudocodice del PDF.
+    void collectReachingDefinitions(Value *V, SmallVectorImpl<Instruction *> &Defs) {
+        if (auto *DefInst = dyn_cast<Instruction>(V))
+            Defs.push_back(DefInst);
+    }
+
+    // -------------------------------------------------------------------------
+    // Restituisce true se tutte le reaching definitions di V sono compatibili
+    // con la variante "loop invariant" richiesta dal PDF.
     //
-    // Un valore è considerato invariante se:
-    // - è una costante;
-    // - è un argomento di funzione;
-    // - è un valore globale;
-    // - è definito al di fuori del loop;
-    // - è definito all'interno del loop da un'istruzione già marcata come invariante.
+    // In pratica:
+    // - costanti, argomenti e globali sono invarianti;
+    // - una definizione fuori dal loop è invarianta;
+    // - una definizione dentro il loop lo è solo se la sua istruzione è già
+    //   stata marcata come invarianta.
     // -------------------------------------------------------------------------
     bool isLoopInvariantValue(Value *V, Loop *L, const SmallSetVector<Instruction *, 16> &InvariantInsts) {
         if (!V)
@@ -97,21 +102,24 @@ struct LoopInvariantMotion : PassInfoMixin<LoopInvariantMotion> {
         if (isa<GlobalValue>(V))
             return true;
 
-        Instruction *DefInst = dyn_cast<Instruction>(V);
+        SmallVector<Instruction *, 4> ReachingDefs;
+        collectReachingDefinitions(V, ReachingDefs);
 
-        if (!DefInst)
+        if (ReachingDefs.empty())
             return false;
 
-        // If the value is defined outside the loop, it cannot change inside it.
-        if (!L->contains(DefInst->getParent()))
-            return true;
+        for (Instruction *DefInst : ReachingDefs) {
+            // If the value is defined outside the loop, it is safe for LICM.
+            if (!L->contains(DefInst->getParent()))
+                continue;
 
-        // If it is defined inside the loop, it is invariant only if the defining
-        // instruction has already been marked as invariant.
-        if (InvariantInsts.count(DefInst))
-            return true;
+            if (InvariantInsts.count(DefInst))
+                continue;
 
-        return false;
+            return false;
+        }
+
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -180,53 +188,114 @@ struct LoopInvariantMotion : PassInfoMixin<LoopInvariantMotion> {
     }
 
     // -------------------------------------------------------------------------
+    // Restituisce true se il blocco dell'istruzione domina tutti i blocchi del
+    // loop che usano il valore definito dall'istruzione.
+    //
+    // Questo è il controllo "altri usi" della consegna.
+    // -------------------------------------------------------------------------
+    bool dominatesAllLoopUses(Instruction &I, Loop *L, DominatorTree &DT) {
+        BasicBlock *InstBB = I.getParent();
+
+        for (User *U : I.users()) {
+            Instruction *UserInst = dyn_cast<Instruction>(U);
+
+            if (!UserInst)
+                return false;
+
+            BasicBlock *UserBB = UserInst->getParent();
+
+            if (!L->contains(UserBB))
+                continue;
+
+            if (!DT.dominates(InstBB, UserBB))
+                return false;
+        }
+
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Restituisce true se il valore prodotto da I non viene usato fuori dal loop.
+    //
+    // Questa è la variante "dead at loop exit" della consegna: se il risultato
+    // non sopravvive oltre il loop, possiamo essere più aggressivi nel motion.
+    // -------------------------------------------------------------------------
+    bool isDeadAtLoopExit(Instruction &I, Loop *L) {
+        for (User *U : I.users()) {
+            Instruction *UserInst = dyn_cast<Instruction>(U);
+
+            if (!UserInst)
+                return false;
+
+            if (!L->contains(UserInst->getParent()))
+                return false;
+        }
+
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
     // Verifica se un'istruzione invariante può essere spostata nel preheader.
     //
-    // Permettiamo lo spostamento se:
-    // - l'istruzione domina tutte le uscite del loop;
-    // OPPURE
-    // - LLVM indica che è sicuro eseguirla speculativamente.
+    // Variante base della slide:
+    // - il blocco domina tutte le uscite;
+    // - il blocco domina tutti i blocchi che usano il valore.
+    //
+    // Variante più aggressiva della slide:
+    // - il valore è dead all'uscita del loop.
     // -------------------------------------------------------------------------
     bool isSafeToMove(Instruction &I, Loop *L, DominatorTree &DT) {
         if (isa<PHINode>(&I))
             return false;
 
-        if (dominatesAllLoopExits(I, L, DT))
+        if (dominatesAllLoopExits(I, L, DT) && dominatesAllLoopUses(I, L, DT))
             return true;
 
-        if (isSafeToSpeculativelyExecute(&I))
+        if (isDeadAtLoopExit(I, L))
             return true;
 
         return false;
     }
 
     // -------------------------------------------------------------------------
-    // Raccoglie le istruzioni invarianti del loop usando un ordine RPO.
+    // Esegue la ricerca depth-first dei blocchi, come richiesto dalla consegna.
     //
-    // L'ordine RPO è più vicino alla traccia del corso:
-    // prima i blocchi dominatori, poi i blocchi dominati. In questo modo è
-    // naturale scoprire prima le definizioni e poi i loro usi.
+    // Ripetiamo l'analisi finché troviamo nuove istruzioni invarianti, così
+    // una definizione può sbloccarne altre nelle iterazioni successive.
     // -------------------------------------------------------------------------
     void collectLoopInvariantInstructions(Loop *L, LoopInfo &LI, SmallSetVector<Instruction *, 16> &InvariantInsts) {
-        LoopBlocksRPO RPO(L);
-        RPO.perform(&LI);
+        SmallVector<BasicBlock *, 16> DFSBlocks;
 
-        for (BasicBlock *BB : RPO) {
-            // Quando si processa un loop esterno, ignoriamo i blocchi che
-            // appartengono ai loop interni: vengono analizzati ricorsivamente
-            // prima del loop corrente.
+        for (BasicBlock *BB : depth_first(L->getHeader())) {
+            if (!L->contains(BB))
+                continue;
+
+            // I loop annidati vengono analizzati separatamente in ricorsione.
             if (LI.getLoopFor(BB) != L)
                 continue;
 
-            for (Instruction &I : *BB) {
-                if (!isLoopInvariantInstruction(I, L, InvariantInsts))
-                    continue;
+            DFSBlocks.push_back(BB);
+        }
 
-                InvariantInsts.insert(&I);
+        bool FoundNewInvariant = true;
 
-                errs() << "  Loop-invariant found: ";
-                I.print(errs());
-                errs() << "\n";
+        while (FoundNewInvariant) {
+            FoundNewInvariant = false;
+
+            for (BasicBlock *BB : DFSBlocks) {
+                for (Instruction &I : *BB) {
+                    if (!isLoopInvariantInstruction(I, L, InvariantInsts))
+                        continue;
+
+                    if (!InvariantInsts.insert(&I))
+                        continue;
+
+                    FoundNewInvariant = true;
+
+                    errs() << "  Loop-invariant found: ";
+                    I.print(errs());
+                    errs() << "\n";
+                }
             }
         }
     }
