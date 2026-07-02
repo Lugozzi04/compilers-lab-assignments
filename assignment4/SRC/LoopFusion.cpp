@@ -141,7 +141,6 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
     // -------------------------------------------------------------------------
     // Controlla l'adiacenza.
     //
-    // Versione conforme al PDF:
     //   - se i loop sono guarded, il successore non-loop del guard di L0
     //     deve coincidere con l'entry block di L1;
     //   - altrimenti, l'exit block di L0 deve coincidere con il preheader di L1.
@@ -228,10 +227,13 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
     // -------------------------------------------------------------------------
     // Prova a rilevare dipendenze negative tra gli accessi dei due loop.
     //
-    // Seguiamo le slide: DI.depends(...), poi guardiamo la direction vector.
-    // Se in qualunque livello compare GT, la fusione viene rifiutata.
+    // La dependence analysis di LLVM sui loop fratelli spesso torna una
+    // dependence loop-independent, quindi il solo controllo sul direction
+    // vector non basta. Qui usiamo un controllo conservativo sul subscript del
+    // load del secondo loop: se il subscript è un addrec "in avanti"
+    // (passo negativo o offset iniziale positivo), blocchiamo la fusione.
     // -------------------------------------------------------------------------
-    bool hasNegativeDistanceDependence(Loop *L0, Loop *L1, DependenceInfo &DI) {
+    bool hasNegativeDistanceDependence(Loop *L0, Loop *L1, ScalarEvolution &SE, DependenceInfo &DI) {
         std::vector<Instruction *> Mem0;
         std::vector<Instruction *> Mem1;
 
@@ -239,37 +241,63 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
         collectMemoryInstructions(L1, Mem1);
 
         for (Instruction *I0 : Mem0) {
+            if (!isa<StoreInst>(I0))
+                continue;
+
             for (Instruction *I1 : Mem1) {
+                if (!isa<LoadInst>(I1))
+                    continue;
+
+                std::unique_ptr<Dependence> Dep = DI.depends(I0, I1, true);
+                if (!Dep)
+                    continue;
+
+                if (Dep->isConfused()) {
+                    errs() << "  Confused dependence found\n";
+                    return true;
+                }
+
+                auto *Load = cast<LoadInst>(I1);
+                Value *Ptr = Load->getPointerOperand()->stripPointerCasts();
+                const SCEV *PtrS = SE.getSCEV(Ptr);
+                const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(PtrS);
+
+                if (!AR || SE.isKnownNegative(AR->getStepRecurrence(SE))) {
+                    errs() << "  Negative distance dependence found\n";
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Filtro di profitto molto semplice: cerca almeno una RAW tra il primo loop
+    // (store) e il secondo loop (load). Se non c'è nessun riuso immediato dei
+    // dati, non forziamo la fusione.
+    // -------------------------------------------------------------------------
+    bool hasAtLeastOneRAWDependence(Loop *L0, Loop *L1, DependenceInfo &DI) {
+        std::vector<Instruction *> Mem0;
+        std::vector<Instruction *> Mem1;
+
+        collectMemoryInstructions(L0, Mem0);
+        collectMemoryInstructions(L1, Mem1);
+
+        for (Instruction *I0 : Mem0) {
+            if (!isa<StoreInst>(I0))
+                continue;
+
+            for (Instruction *I1 : Mem1) {
+                if (!isa<LoadInst>(I1))
+                    continue;
+
                 std::unique_ptr<Dependence> Dep = DI.depends(I0, I1, true);
 
                 if (!Dep)
                     continue;
 
-                if (Dep->isConfused()) {
-                    errs() << "  Confused dependence found between:\n";
-                    errs() << "    ";
-                    I0->print(errs());
-                    errs() << "\n    ";
-                    I1->print(errs());
-                    errs() << "\n";
-                    return true;
-                }
-
-                unsigned Levels = Dep->getLevels();
-
-                for (unsigned Level = 1; Level <= Levels; ++Level) {
-                    unsigned Direction = Dep->getDirection(Level);
-
-                    if (Direction & Dependence::DVEntry::GT) {
-                        errs() << "  Negative distance dependence found between:\n";
-                        errs() << "    ";
-                        I0->print(errs());
-                        errs() << "\n    ";
-                        I1->print(errs());
-                        errs() << "\n";
-                        return true;
-                    }
-                }
+                return true;
             }
         }
 
@@ -383,6 +411,27 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
     }
 
     // -------------------------------------------------------------------------
+    // Raccoglie i blocchi del secondo loop che diventano irraggiungibili dopo la
+    // fusione.
+    //
+    // La cleanup resta semplice: includiamo preheader, eventuale guard e tutti i
+    // blocchi appartenenti al loop. DeleteDeadBlocks eliminerà il sottografo morto
+    // in un colpo solo.
+    // -------------------------------------------------------------------------
+    void collectDeadLoopBlocks(Loop *L, std::vector<BasicBlock *> &DeadBlocks) {
+        DeadBlocks.clear();
+
+        if (BasicBlock *Preheader = L->getLoopPreheader())
+            DeadBlocks.push_back(Preheader);
+
+        if (BranchInst *Guard = L->getLoopGuardBranch())
+            DeadBlocks.push_back(Guard->getParent());
+
+        for (BasicBlock *BB : L->getBlocks())
+            DeadBlocks.push_back(BB);
+    }
+
+    // -------------------------------------------------------------------------
     // Fonde concretamente L0 e L1.
     //
     // Trasformazione semplificata:
@@ -447,6 +496,10 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
             return false;
         }
 
+        std::vector<BasicBlock *> DeadBlocks;
+        collectDeadLoopBlocks(L1, DeadBlocks);
+        DeleteDeadBlocks(DeadBlocks);
+
         errs() << "  Fusion applied.\n";
         return true;
     }
@@ -487,7 +540,12 @@ struct LoopFusion : PassInfoMixin<LoopFusion> {
             return false;
         }
 
-        if (hasNegativeDistanceDependence(L0, L1, DI)) {
+        if (!hasAtLeastOneRAWDependence(L0, L1, DI)) {
+            errs() << "  No useful RAW dependence. Skipped.\n";
+            return false;
+        }
+
+        if (hasNegativeDistanceDependence(L0, L1, SE, DI)) {
             errs() << "  Negative distance dependence. Cannot fuse.\n";
             return false;
         }

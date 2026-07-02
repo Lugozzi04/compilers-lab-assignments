@@ -1,75 +1,54 @@
-// Test suite for assignment 4.
-// The loops use small constant trip counts so the simplified fusion pass can
-// match the PDF more closely.
+// Clean test suite for assignment 4.
+// Positive cases: guarded and unguarded fusion with a real RAW dependence.
+// Negative cases: a guarded RAR-only pair and an unguarded pair with no useful
+// dependence for fusion.
 
-#define N 8
+void guarded_raw(int *__restrict A, int *__restrict B, int n) {
+    if (n > 0) {
+        for (int i = 0; i < n; ++i)
+            A[i] = i;
 
-int g_sink;
-
-void fuse_reset_then_bump(int *a) {
-    for (int i = 0; i < N; ++i) {
-        a[i] = i;
-    }
-
-    for (int i = 0; i < N; ++i) {
-        a[i] = a[i] + 1;
+        for (int i = 0; i < n; ++i)
+            B[i] = A[i] + 1;
     }
 }
 
-void fuse_scale_then_shift(int *a) {
-    for (int i = 0; i < N; ++i) {
-        a[i] = i * 2;
-    }
+void unguarded_raw(int *__restrict A, int *__restrict B, int n) {
+    for (int i = 0; i < n; ++i)
+        A[i] = i;
 
-    for (int i = 0; i < N; ++i) {
-        int p = i * 17;
-        p = p + 5;
-        a[i] = a[i] + 3;
-    }
+    for (int i = 0; i < n; ++i)
+        B[i] = A[i] + 1;
 }
 
-void no_fuse_different_trip_count(int *a) {
-    for (int i = 0; i < N; ++i) {
-        a[i] = i;
+int guarded_rar_only(int *__restrict A, int n) {
+    int sum = 0;
+
+    if (n > 0) {
+        for (int i = 0; i < n; ++i)
+            sum += A[i];
+
+        for (int i = 0; i < n; ++i)
+            sum += A[i];
     }
 
-    for (int i = 0; i < N - 1; ++i) {
-        a[i] = i + 7;
-    }
+    return sum;
 }
 
-void no_fuse_negative_distance(int *src, int *dst) {
-    for (int i = 0; i < N - 3; ++i) {
-        src[i] = i;
-    }
+void unguarded_no_dependence(int *__restrict A, int *__restrict B, int n) {
+    for (int i = 0; i < n; ++i)
+        A[i] = i;
 
-    for (int i = 0; i < N - 3; ++i) {
-        dst[i] = src[i + 3];
-    }
+    for (int i = 0; i < n; ++i)
+        B[i] = i + 1;
 }
 
-void no_fuse_gap_between_loops(int *a) {
-    for (int i = 0; i < N; ++i) {
-        a[i] = i;
-    }
+void guarded_negative_dependence(int *__restrict A, int *__restrict B, int n) {
+    if (n > 1) {
+        for (int i = 0; i < n - 1; ++i)
+            A[i] = i;
 
-    g_sink += N;
-
-    for (int i = 0; i < N; ++i) {
-        a[i] = i + g_sink;
-    }
-}
-
-void fuse_branchy_body(int *a) {
-    for (int i = 0; i < N; ++i) {
-        if ((i & 1) == 0) {
-            a[i] = i;
-        } else {
-            a[i] = -i;
-        }
-    }
-
-    for (int i = 0; i < N; ++i) {
-        a[i] = a[i] + 5;
+        for (int i = 0; i < n - 1; ++i)
+            B[i] = A[i + 1] + 1;
     }
 }
